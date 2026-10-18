@@ -438,6 +438,7 @@
       h('div', { class: 'divider' }),
       h('div', { class: 'scroll-y' }, (data.review || []).map((r, i) => h('div', { style: { padding: '.6rem 0', borderBottom: '1px dashed rgba(255,255,255,.14)' } },
         h('div', { class: 'small' }, r.correct ? '✅ ' : '❌ ', h('b', {}, `Soal ${i + 1}: `), r.prompt),
+        r.image ? h('img', { src: r.image, alt: '', style: { maxWidth: '150px', borderRadius: '8px', marginTop: '.3rem' } }) : null,
         h('div', { class: 'tiny', style: { marginTop: '.25rem' } },
           'Jawaban: ', h('b', { style: { color: r.correct ? '#86efac' : '#fecaca' } }, fmtGiven(r.given)),
           r.correct ? null : h('span', {}, ' · Kunci: ', h('b', {}, fmtGiven(r.answer))),
@@ -1030,6 +1031,28 @@
       ));
       const promptTa = h('textarea', { class: 'inp', style: { minHeight: '62px' }, oninput: (e) => { q.prompt = e.target.value; } }, q.prompt || '');
       box.appendChild(promptTa);
+
+      /* gambar soal (opsional): upload terkompresi atau URL */
+      const imgPrevWrap = h('div', { class: 'row', style: { marginTop: '.35rem' } });
+      const paintImg = () => {
+        imgPrevWrap.innerHTML = '';
+        if (q.image) imgPrevWrap.appendChild(h('img', { src: q.image, alt: '', style: { maxHeight: '56px', borderRadius: '8px', border: '1px solid rgba(255,255,255,.25)' } }));
+      };
+      paintImg();
+      const fileInp = h('input', { type: 'file', accept: 'image/*', style: { width: 'auto', fontSize: '.8rem', maxWidth: '170px' }, onchange: async (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        try {
+          const url = await window.PB.fileToDataUrl(f);
+          if (url.length > 600000) toast('Gambar masih besar setelah kompres — pakai gambar lebih kecil agar hemat kuota siswa.', 'err');
+          q.image = url; urlInp.value = ''; paintImg();
+        } catch (err) { toast('Gagal memuat gambar: ' + err.message, 'err'); }
+      } });
+      const urlInp = h('input', { class: 'inp', style: { flex: 1, minWidth: '120px', fontSize: '.82rem' }, placeholder: '…atau tempel URL gambar', value: /^https?:/.test(q.image || '') ? (q.image || '') : '', oninput: (e) => { q.image = e.target.value.trim() || undefined; if (!q.image) delete q.image; paintImg(); } });
+      const delImg = h('button', { class: 'icon-btn', title: 'Hapus gambar', onclick: () => { delete q.image; urlInp.value = ''; fileInp.value = ''; paintImg(); } }, '🗑');
+      box.appendChild(h('div', { class: 'row', style: { marginTop: '.5rem', alignItems: 'center', gap: '.4rem' } },
+        h('span', { class: 'tiny muted' }, '🖼 Gambar:'), fileInp, urlInp, delImg));
+      box.appendChild(imgPrevWrap);
 
       if (q.type === 'mc') {
         const opts = q.options && q.options.length ? q.options.slice(0, 4) : ['', '', '', ''];

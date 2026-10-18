@@ -107,6 +107,7 @@ window.PBGame = (function () {
         h('span', { class: 'chip' }, `+${q.points || 10} poin`),
       ));
       box.appendChild(h('div', { class: 'qprompt' }, q.prompt || ''));
+      if (q.image) box.appendChild(h('img', { src: q.image, alt: '', style: { maxWidth: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '12px', margin: '0 0 .6rem', background: 'rgba(255,255,255,.06)' } }));
 
       const area = h('div', { class: 'qarea' });
       box.appendChild(area);

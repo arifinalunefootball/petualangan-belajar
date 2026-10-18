@@ -468,7 +468,7 @@ Maksimum 250 kata, bahasa sesuai jenjang, fakta umum yang akurat, tidak menyingg
       if (OFFLINE) {
         const a = offlineDb.attempts.find((x) => x.id === id);
         const byId = new Map(offlineDb.questions.filter((q) => q.gameId === a.gameId).map((q) => [q.id, q]));
-        return { attempt: a, review: (a.answers || []).map((ans) => { const q = byId.get(ans.questionId); return { prompt: ans.prompt, type: ans.type, given: ans.given, correct: ans.correct, answer: q ? q.answer : null, explanation: q ? q.explanation : '' }; }) };
+        return { attempt: a, review: (a.answers || []).map((ans) => { const q = byId.get(ans.questionId); return { prompt: ans.prompt, type: ans.type, given: ans.given, correct: ans.correct, answer: q ? q.answer : null, explanation: q ? q.explanation : '', image: q ? (q.image || null) : null }; }) };
       }
       return api('/api/my/attempt/' + id);
     },
@@ -1091,7 +1091,7 @@ Aturan:
         await ensure();
         const a = cdb.attempts[id];
         const byId = new Map(qOf(a.gameId).map((q) => [q.id, q]));
-        return { attempt: a, review: (a.answers || []).map((ans) => { const q = byId.get(ans.questionId); return { prompt: ans.prompt, type: ans.type, given: ans.given, correct: ans.correct, answer: q ? q.answer : null, explanation: q ? q.explanation : '' }; }) };
+        return { attempt: a, review: (a.answers || []).map((ans) => { const q = byId.get(ans.questionId); return { prompt: ans.prompt, type: ans.type, given: ans.given, correct: ans.correct, answer: q ? q.answer : null, explanation: q ? q.explanation : '', image: q ? (q.image || null) : null }; }) };
       },
       async teacherAttempts(params = {}) {
         await ensure();
@@ -1157,6 +1157,27 @@ Aturan:
   PB.confirm = confirmDialog;
   PB.confetti = confetti;
   PB.ringPercent = ringPercent;
+  function fileToDataUrl(file, maxW = 1000, quality = 0.72) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const sc = Math.min(1, maxW / (img.width || 1));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round((img.width || 1) * sc));
+          c.height = Math.max(1, Math.round((img.height || 1) * sc));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          res(c.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => rej(new Error('format gambar tidak didukung'));
+        img.src = fr.result;
+      };
+      fr.onerror = () => rej(new Error('gagal membaca file'));
+      fr.readAsDataURL(file);
+    });
+  }
+  PB.fileToDataUrl = fileToDataUrl;
   PB.uid = uid;
   PB.code = code;
   PB.shuffle = shuffle;
