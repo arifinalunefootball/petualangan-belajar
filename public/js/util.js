@@ -684,6 +684,9 @@ Maksimum 250 kata, bahasa sesuai jenjang, fakta umum yang akurat, tidak menyingg
       loading = (async () => {
         const raw = await rget('');
         cdb = raw && raw.users ? raw : EMPTY();
+        /* Firebase menghapus node objek kosong, jadi pastikan semua peta ada */
+        ['users', 'subjects', 'topics', 'classes', 'games', 'questions', 'materials', 'attempts', 'badges'].forEach((k) => { if (!cdb[k] || typeof cdb[k] !== 'object') cdb[k] = {}; });
+        if (!cdb.settings || typeof cdb.settings !== 'object') cdb.settings = { schoolName: 'Sekolah Petualangan Belajar', aiMode: 'auto' };
         return cdb;
       })();
       return loading;
@@ -1067,6 +1070,7 @@ Aturan:
           timeSpent: answers.reduce((x, a) => x + (a.seconds || 0), 0),
           answers, startedAt: payload.startedAt || new Date().toISOString(), finishedAt: new Date().toISOString(), seen: false,
         };
+        cdb.attempts = cdb.attempts || {};
         cdb.attempts[att.id] = att;
         u.points = (u.points || 0) + score;
         const badges = [];
@@ -1074,6 +1078,7 @@ Aturan:
         if (percent >= 80) badges.push('🌟 Hebat');
         await rpatch('attempts/' + att.id, att);
         await rpatch('users/' + u.id, { points: u.points });
+        cdb.badges = cdb.badges || {};
         for (const b of badges) { const bd = { id: uid('bdg'), studentId: u.id, name: b, at: new Date().toISOString(), gameId: g.id }; cdb.badges[bd.id] = bd; rpatch('badges/' + bd.id, bd); }
         const rank = attemptsOfGame(g.id).sort((a, b) => b.score - a.score).findIndex((a) => a.id === att.id) + 1;
         return { attempt: { id: att.id, score, maxScore, percent, correct: att.correct, total: att.total, rank, badges }, teacherName: (cdb.users[g.ownerId] || {}).name };
