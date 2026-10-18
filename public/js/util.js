@@ -353,6 +353,7 @@ window.PB = window.PB || {};
 
     async aiPreview(payload) {
       if (OFFLINE) {
+        if (window.PB_AI) return { questions: window.PB_AI.generateQuestions(payload).map((q) => Object.assign({ source: 'offline' }, q)), engine: 'PB-AI offline (lengkap)' };
         return { questions: localGenerate(payload), engine: 'offline-lokal (mode 1 file HTML)' };
       }
       return api('/api/ai/preview', { method: 'POST', body: payload });
@@ -694,6 +695,69 @@ window.PB = window.PB || {};
       };
     }
 
+    /* ----- AI online (API gaya OpenAI) untuk mode cloud ----- */
+    const AI_SYSTEM = `Kamu adalah asisten pembuat soal pendidikan Bahasa Indonesia.
+Balas HANYA dengan JSON valid tanpa teks lain, tanpa markdown, sesuai skema:
+{"questions":[{"type":"mc|tf|fill|order|match","prompt":"...","options":["..."],"answer":"...","points":10,"explanation":"...","difficulty":"mudah|sedang|sulit"}]}
+Aturan:
+- type "mc": options berisi 4 pilihan, answer = teks pilihan yang benar persis.
+- type "tf": options ["benar","salah"], answer "benar" atau "salah".
+- type "fill": options [], answer kata/frasa singkat untuk mengisi titik-titik.
+- type "order": answer = array langkah yang sudah URUT BENAR.
+- type "match": answer = array objek {"left":"istilah","right":"pengertian"}.
+- Soal harus bersumber dari MATERI yang diberikan, bahasa sesuai jenjang siswa, tidak menyinggung SARA.`;
+    const normS = (x) => String(x == null ? '' : x).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    function extractJson(text) {
+      if (!text) return null;
+      let t = String(text).trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      const a = t.indexOf('{'); const b = t.lastIndexOf('}');
+      if (a === -1 || b === -1) return null;
+      t = t.slice(a, b + 1);
+      try { return JSON.parse(t); } catch (e) {
+        try { return JSON.parse(t.replace(/,\s*([}\]])/g, '$1')); } catch (e2) { return null; }
+      }
+    }
+    function normalizeQuestions(raw, opts) {
+      if (!raw || !Array.isArray(raw.questions)) return [];
+      const allowed = ['mc', 'tf', 'fill', 'order', 'match'];
+      const out = [];
+      raw.questions.forEach((q, i) => {
+        if (!q || !allowed.includes(q.type) || !q.prompt) return;
+        const item = { id: uid('qai'), order: out.length + 1, type: q.type, prompt: String(q.prompt), options: Array.isArray(q.options) ? q.options.map(String) : [], answer: q.answer, points: Number(q.points) || (q.type === 'match' ? 25 : q.type === 'order' ? 20 : 10), explanation: q.explanation || '', difficulty: ['mudah', 'sedang', 'sulit'].includes(q.difficulty) ? q.difficulty : 'sedang', source: 'api' };
+        if (item.type === 'mc') {
+          if (item.options.length < 2) return;
+          const correct = String(item.answer);
+          if (!item.options.some((o) => normS(o) === normS(correct))) return;
+          item.options = item.options.slice(0, 4);
+          item.answer = item.options.find((o) => normS(o) === normS(correct));
+        }
+        if (item.type === 'tf') { item.options = ['benar', 'salah']; item.answer = /benar|true|ya/i.test(String(item.answer)) ? 'benar' : 'salah'; }
+        if (item.type === 'order' || item.type === 'match') { if (!Array.isArray(item.answer)) return; if (item.type === 'order' && item.answer.length < 3) return; }
+        if (item.type === 'fill') { item.options = []; item.answer = String(item.answer); }
+        out.push(item);
+      });
+      return out.slice(0, opts.count || 10);
+    }
+    async function cloudApiGenerate(st, key, opts) {
+      const base = (st.aiBaseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+      const levelText = { 'sd-kelas-1-2': 'SD kelas 1-2', 'sd-kelas-3-4': 'SD kelas 3-4', 'sd-kelas-5-6': 'SD kelas 5-6', smp: 'SMP', sma: 'SMA/SMK' }[opts.level] || 'siswa';
+      const userPrompt = `Mata pelajaran: ${opts.subject || '-'}\nTopik/materi: ${opts.topic || '-'}\nJenjang: ${levelText}\nJumlah soal: ${opts.count}\nTipe soal yang diminta: ${(opts.types || []).join(', ')}\nTingkat kesulitan: ${opts.difficulty || 'campur'}\n\nMATERI:\n"""\n${String(opts.material || '').slice(0, 12000)}\n"""\n\nBuat soal berdasarkan materi di atas.`;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 45000);
+      try {
+        const res = await fetch(base + '/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          body: JSON.stringify({ model: st.aiModel || 'gpt-4o-mini', temperature: 0.6, messages: [{ role: 'system', content: AI_SYSTEM }, { role: 'user', content: userPrompt }] }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) throw new Error('API ' + res.status);
+        const data = await res.json();
+        const content = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+        return normalizeQuestions(extractJson(content), opts);
+      } finally { clearTimeout(timer); }
+    }
+
     const impl = {
       cloud: true,
       async me() {
@@ -870,10 +934,48 @@ window.PB = window.PB || {};
         return { ok: true };
       },
 
-      async aiPreview(payload) { return { questions: localGenerate(payload), engine: 'AI bawaan (mode cloud)' }; },
-      async lessonPlan(payload) { return { plan: { jenjang: payload.level || '', tujuan: ['Siswa mampu menjelaskan ' + (payload.topic || 'materi') + ' dengan bahasa sendiri.'], aktivitas: ['Apersepsi (5 menit)', 'Eksplorasi materi (10 menit)', 'Bermain game (15 menit)', 'Refleksi (5 menit)'], ringkasan: String(payload.material || '').slice(0, 400), kataKunci: [], saranGame: 'Pilihan ganda & benar/salah' } }; },
-      async settings() { await ensure(); return Object.assign({}, cdb.settings, { aiApiKey: '' }); },
-      async saveSettings(payload) { await ensure(); Object.assign(cdb.settings, payload); await rpatch('settings', payload); return { ok: true }; },
+      async aiPreview(payload) {
+        const offlineGen = (label) => window.PB_AI
+          ? { questions: window.PB_AI.generateQuestions(payload).map((q) => Object.assign({ source: 'offline' }, q)), engine: label }
+          : { questions: localGenerate(payload), engine: label };
+        const st = await impl.settings();
+        const key = safeLS.getItem('pb_cloud_aikey') || '';
+        const mode = st.aiMode || 'auto';
+        if (key && mode !== 'offline') {
+          try {
+            const qs = await cloudApiGenerate(st, key, payload);
+            if (qs && qs.length) return { questions: qs, engine: 'api (' + (st.aiModel || 'model') + ')' };
+            return offlineGen('offline (respons API tidak valid)');
+          } catch (e) {
+            return offlineGen('offline (API gagal: ' + e.message + ')');
+          }
+        }
+        return offlineGen(window.PB_AI ? 'PB-AI (mode cloud)' : 'AI bawaan lite (mode cloud)');
+      },
+      async lessonPlan(payload) {
+        if (window.PB_AI) return { plan: window.PB_AI.lessonPlan(payload) };
+        return { plan: { jenjang: payload.level || '', tujuan: ['Siswa mampu menjelaskan ' + (payload.topic || 'materi') + ' dengan bahasa sendiri.'], aktivitas: ['Apersepsi (5 menit)', 'Eksplorasi materi (10 menit)', 'Bermain game (15 menit)', 'Refleksi (5 menit)'], ringkasan: String(payload.material || '').slice(0, 400), kataKunci: [], saranGame: 'Pilihan ganda & benar/salah' } };
+      },
+      async settings() {
+        await ensure();
+        const s = Object.assign({}, cdb.settings);
+        delete s.aiApiKey;
+        s.aiKeySet = Boolean(safeLS.getItem('pb_cloud_aikey'));
+        s.aiApiKey = '';
+        return s;
+      },
+      async saveSettings(payload) {
+        await ensure();
+        const p = Object.assign({}, payload);
+        if (p.aiApiKey !== undefined) {
+          const k = String(p.aiApiKey || '').trim();
+          if (k) safeLS.setItem('pb_cloud_aikey', k);
+          delete p.aiApiKey;
+        }
+        Object.assign(cdb.settings, p);
+        await rpatch('settings', p);
+        return { ok: true };
+      },
 
       async play(joinCode) {
         await ensure();
