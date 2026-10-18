@@ -70,7 +70,7 @@
         h('div', { class: 'brand-logo' }, '🎮'),
         h('div', {}, 'Petualangan', h('span', { class: 'muted', style: { fontWeight: 600 } }, ' Belajar')),
       ),
-      OFFLINE ? h('span', { class: 'chip chip-warn', title: 'Versi 1 file HTML, data tersimpan di browser ini' }, '💾 Mode Offline') : h('span', { class: 'chip chip-ok', title: 'Data tersimpan di server' }, '☁️ Server Aktif'),
+      window.PB_OFFLINE ? h('span', { class: 'chip chip-warn', title: 'Versi 1 file HTML, data tersimpan di browser ini' }, '💾 Mode Offline') : api.cloud ? h('span', { class: 'chip chip-ok', title: 'Data tersimpan di Firebase — terpusat untuk semua device' }, '☁️ Mode Cloud') : h('span', { class: 'chip chip-ok', title: 'Data tersimpan di server' }, '🖥️ Server Aktif'),
       h('div', { class: 'spacer' }),
       h('div', { class: 'userpill', onclick: openProfile },
         h('div', { class: 'avatar', style: { background: ME.color || '#6366f1' } }, ME.avatar || '🙂'),
@@ -895,6 +895,17 @@
         h('button', { class: 'btn btn-sm btn-ghost', onclick: () => { ta.value = CONTOH.ipa; S.material = ta.value; } }, 'Contoh materi IPA'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: () => { ta.value = CONTOH.sejarah; S.material = ta.value; } }, 'Contoh IPS'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: () => { ta.value = CONTOH.english; S.material = ta.value; } }, 'Contoh B. Inggris'),
+        h('button', { class: 'btn btn-sm btn-ok', onclick: async (ev) => {
+          const tp = S.topicName || S.title || '';
+          if (!tp.trim()) return toast('Isi dulu judul/topik game di langkah 1.', 'err');
+          const btn = ev.currentTarget; btn.disabled = true; btn.textContent = '🪄 Menulis materi…';
+          try {
+            const r = await api.generateMaterial({ topic: tp, level: S.level, subject: (subjects.find((x) => x.id === S.subjectId) || {}).name || '' });
+            ta.value = r.text; S.material = r.text;
+            toast('🪄 Materi otomatis siap (' + r.source + ')', 'ok');
+          } catch (e) { toast(e.message, 'err'); }
+          btn.disabled = false; btn.textContent = '🪄 Materi otomatis (AI)';
+        } }, '🪄 Materi otomatis (AI)'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: async () => {
           if (!ta.value.trim()) return toast('Isi materi dulu.', 'err');
           await api.saveMaterial({ title: S.topicName || S.title, content: ta.value, subjectId: S.subjectId, jenjang: S.level });
@@ -1626,6 +1637,17 @@ Langkah-langkah fotosintesis:
       genBtn.disabled = false; genBtn.textContent = '✨ Buat Soal dengan AI';
     } }, '✨ Buat Soal dengan AI');
 
+    const matBtn = h('button', { class: 'btn btn-ghost', onclick: async () => {
+      if (!topic.value.trim()) return toast('Isi kolom Topik dulu (mis. fotosintesis).', 'err');
+      matBtn.disabled = true; matBtn.textContent = '🪄 Menulis materi…';
+      try {
+        const r = await api.generateMaterial({ topic: topic.value.trim(), level: level.value, subject: '' });
+        ta.value = r.text;
+        toast('🪄 Materi otomatis siap (' + r.source + ')', 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+      matBtn.disabled = false; matBtn.textContent = '🪄 Materi otomatis';
+    } }, '🪄 Materi otomatis');
+
     grid.appendChild(h('div', { class: 'card' },
       h('div', { class: 'card-h' }, h('div', { class: 'card-title' }, '⚡ Generator Soal Cepat'), h('span', { class: 'ai-badge' }, 'AI')),
       h('p', { class: 'muted small' }, 'Untuk kebutuhan mendadak: tempel materi, dapat soal siap pakai.'),
@@ -1636,7 +1658,7 @@ Langkah-langkah fotosintesis:
         h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Jumlah'), cnt),
       ),
       h('label', { class: 'lbl' }, 'Tipe soal'), tRow,
-      h('div', { class: 'row', style: { marginTop: '.8rem' } }, genBtn),
+      h('div', { class: 'row', style: { marginTop: '.8rem' } }, genBtn, matBtn),
       out,
     ));
 

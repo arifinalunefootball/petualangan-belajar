@@ -104,6 +104,27 @@ window.PB = window.PB || {};
     return qs.slice(0, opts.count || 8).map((q, i) => Object.assign(q, { id: uid('q'), order: i + 1, source: 'offline-lokal' }));
   }
 
+  /* ------------------- Materi otomatis (bank + prompt AI) ------------------- */
+  const MATERIAL_SYSTEM = `Kamu adalah penulis materi pelajaran sekolah Indonesia.
+Tulis materi dalam TEKS POLA BARIS (tanpa markdown, tanpa judul) dengan struktur:
+(1) satu paragraf pembuka 1-2 kalimat yang memuat pola "X adalah ...";
+(2) 4-6 baris butir dengan format "- Istilah: pengertian singkat";
+(3) bila topik berupa proses, 3-4 baris langkah bernomor "1. ...", "2. ...", dst.
+Maksimum 250 kata, bahasa sesuai jenjang, fakta umum yang akurat, tidak menyinggung SARA.`;
+  const levelTextOf = (lv) => ({ 'sd-kelas-1-2': 'SD kelas 1-2', 'sd-kelas-3-4': 'SD kelas 3-4', 'sd-kelas-5-6': 'SD kelas 5-6', smp: 'SMP', sma: 'SMA/SMK' }[lv] || 'siswa');
+  const MATERI_BANK = [
+    { keys: ['fotosintesis', 'tumbuhan', 'daun'], title: 'Fotosintesis', text: 'Fotosintesis adalah proses pembuatan makanan oleh tumbuhan hijau.\n- Klorofil: zat hijau daun yang menyerap energi cahaya matahari.\n- Bahan fotosintesis: karbon dioksida, air, dan cahaya matahari.\n- Hasil fotosintesis: glukosa dan oksigen.\n- Stomata: lubang kecil pada daun tempat masuknya karbon dioksida.\n- Kloroplas: tempat terjadinya fotosintesis di dalam sel daun.\n1. Cahaya diserap oleh klorofil.\n2. Air dan karbon dioksida dirangkai menjadi glukosa.\n3. Oksigen dilepaskan ke udara.' },
+    { keys: ['pecahan', 'matematika', 'bilangan'], title: 'Pecahan', text: 'Pecahan adalah bilangan yang menyatakan bagian dari keseluruhan.\n- Pembilang: angka bagian atas yang menyebut jumlah bagian yang diambil.\n- Penyebut: angka bagian bawah yang menyebut banyak bagian keseluruhan.\n- Pecahan senilai: pecahan berbeda yang besarnya sama.\n- Pecahan sederhana: pecahan yang sudah dibagi faktor sekutu terbesarnya.\n1. Tulis pecahan sebagai pembilang per penyebut.\n2. Samakan penyebut untuk menjumlah atau mengurangkan.\n3. Sederhanakan hasil dengan membagi kedua angka dengan FPB.' },
+    { keys: ['proklamasi', 'kemerdekaan', 'sejarah'], title: 'Proklamasi Kemerdekaan', text: 'Proklamasi Kemerdekaan Indonesia adalah peristiwa pembacaan pernyataan kemerdekaan pada 17 Agustus 1945.\n- Peristiwa Rengasdengklok: pengamanan Soekarno-Hatta oleh golongan muda pada 16 Agustus 1945.\n- Tempat pembacaan: Jalan Pegangsaan Timur Nomor 56, Jakarta.\n- Teks proklamasi: diketik oleh Sayuti Melik dan ditandatangani Soekarno-Hatta.\n- Bendera Merah Putih: dijahit oleh Ibu Fatmawati.\n1. Golongan muda mendesak segera memproklamasikan kemerdekaan.\n2. Teks proklamasi disusun dan diketik.\n3. Soekarno membacakan proklamasi diiringi pengibaran bendera.' },
+    { keys: ['rantai makanan', 'ekosistem', 'ipa'], title: 'Rantai Makanan', text: 'Rantai makanan adalah peristiwa makan dan dimakan antar makhluk hidup dalam ekosistem.\n- Produsen: makhluk hidup pembuat makanan sendiri, contohnya tumbuhan.\n- Konsumen tingkat I: hewan pemakan tumbuhan, contohnya tikus.\n- Konsumen tingkat II: pemakan konsumen tingkat I, contohnya ular.\n- Pengurai: organisme yang menguraikan sisa makhluk hidup, contohnya jamur.\n1. Energi mengalir dari produsen ke konsumen.\n2. Setiap pihak memakan pihak sebelumnya.\n3. Pengurai mengembalikan zat hara ke tanah.' },
+    { keys: ['english', 'inggris', 'bahasa inggris'], title: 'Simple Present Tense', text: 'Simple present tense adalah bentuk kalimat untuk kebiasaan dan fakta umum.\n- Subject: pelaku tindakan, contohnya I, you, they, we, he, she, it.\n- Verb-1: kata kerja bentuk dasar untuk subjek I, you, they, we.\n- Verb-1 dengan -s: untuk subjek he, she, it, contohnya reads, goes.\n- Time signals: always, usually, often, sometimes, every day.\n1. Mulai dengan subjek.\n2. Tambahkan kata kerja yang sesuai subjek.\n3. Lengkapi dengan keterangan waktu atau objek.' },
+  ];
+  function bankMatch(topic) {
+    const t = String(topic || '').toLowerCase();
+    if (!t) return null;
+    return MATERI_BANK.find((b) => b.keys.some((k) => t.includes(k) || k.includes(t))) || null;
+  }
+
   /* --------------------------- API tersatukan ----------------------------- */
   const client = {
     offline: OFFLINE,
@@ -146,6 +167,15 @@ window.PB = window.PB || {};
     async logout() {
       if (OFFLINE) { offlineSession = null; safeLS.removeItem('pb_offline_user'); return { ok: true }; }
       return api('/api/auth/logout', { method: 'POST' });
+    },
+
+    async generateMaterial(payload) {
+      if (OFFLINE) {
+        const b = bankMatch(payload.topic);
+        if (b) return { text: b.text, source: 'bank materi bawaan: ' + b.title };
+        throw new Error('Mode offline: materi otomatis tersedia untuk topik ' + MATERI_BANK.map((x) => x.title).join(', ') + '. Selain itu tempel materi manual ya.');
+      }
+      return api('/api/ai/material', { method: 'POST', body: payload });
     },
 
     async subjects() {
@@ -934,6 +964,27 @@ Aturan:
         return { ok: true };
       },
 
+      async generateMaterial(payload) {
+        const st = await impl.settings();
+        const key = safeLS.getItem('pb_cloud_aikey') || '';
+        if (key && (st.aiMode || 'auto') !== 'offline') {
+          try {
+            const base = (st.aiBaseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+            const res = await fetch(base + '/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+              body: JSON.stringify({ model: st.aiModel || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: MATERIAL_SYSTEM }, { role: 'user', content: `Topik: ${payload.topic || '-'}\nMata pelajaran: ${payload.subject || '-'}\nJenjang: ${levelTextOf(payload.level)}\nTulis materinya sekarang.` }] }),
+            });
+            if (!res.ok) throw new Error('API ' + res.status);
+            const d = await res.json();
+            const txt = String((d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '').trim();
+            if (txt.length > 60) return { text: txt, source: 'api (' + (st.aiModel || 'model') + ')' };
+          } catch (e) { /* jatuh ke bank */ }
+        }
+        const b = bankMatch(payload.topic);
+        if (b) return { text: b.text, source: 'bank materi bawaan: ' + b.title };
+        throw new Error('Materi otomatis untuk topik ini butuh AI online: isi API key di Pengaturan → AI dulu ya, atau tempel materi manual.');
+      },
       async aiPreview(payload) {
         const offlineGen = (label) => window.PB_AI
           ? { questions: window.PB_AI.generateQuestions(payload).map((q) => Object.assign({ source: 'offline' }, q)), engine: label }
