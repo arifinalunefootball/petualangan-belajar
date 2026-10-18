@@ -1632,6 +1632,7 @@ Langkah-langkah fotosintesis:
         out.appendChild(h('div', { class: 'row', style: { marginTop: '.8rem' } },
           h('button', { class: 'btn btn-ok', onclick: () => saveAsGame(res.questions, topic.value || 'Game AI') }, '💾 Jadikan Game Baru'),
           h('button', { class: 'btn btn-ghost', onclick: () => copyQuestions(res.questions) }, '📋 Salin sebagai teks'),
+          h('p', { class: 'muted small', style: { marginTop: '.6rem' } }, '❗ Soal di atas masih pratinjau dan BELUM tersimpan. Klik 💾 Jadikan Game Baru agar masuk ke menu Game Saya dan bisa dimainkan siswa.'),
         ));
       } catch (e) { out.appendChild(h('div', { class: 'demo-box', style: { borderColor: 'rgba(239,68,68,.5)', background: 'rgba(239,68,68,.14)' } }, '⚠️ ' + esc(e.message))); }
       genBtn.disabled = false; genBtn.textContent = '✨ Buat Soal dengan AI';
